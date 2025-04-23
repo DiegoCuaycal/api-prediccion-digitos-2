@@ -14,41 +14,47 @@ model = load_model("digit_model_color_augment.h5")
 
 
 def preprocess_custom_image(file_bytes):
-    # Leer imagen como array RGB
+   # Leer imagen como array RGB
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
     img = np.array(img)
 
-    # 1) Convertir a escala de grises (si es necesario)
+    # Convertir a escala de grises
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # 2) Umbral Otsu invertido
-    _, thresh = cv2.threshold(
-        gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # Verificar si el fondo es oscuro (promedio alto en gris = fondo claro)
+    mean_intensity = np.mean(gray)
+    fondo_claro = mean_intensity > 127  # Umbral intermedio
 
-    # 3) Encontrar el contorno más grande
+    # Usar umbral adecuado: invertir solo si el fondo es claro
+    threshold_type = cv2.THRESH_BINARY_INV if fondo_claro else cv2.THRESH_BINARY
+    _, thresh = cv2.threshold(gray, 0, 255, threshold_type + cv2.THRESH_OTSU)
+
+    # Encontrar el contorno más grande
     cnts, _ = cv2.findContours(
         thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         raise ValueError("No se encontraron dígitos en la imagen.")
+
     x, y, w, h = cv2.boundingRect(max(cnts, key=cv2.contourArea))
     digit = thresh[y:y + h, x:x + w]
 
-    # 4) Redimensionar a 20x20 manteniendo proporción
+    # Redimensionar a 20x20 manteniendo proporción
     scale = 20.0 / max(w, h)
     digit_resized = cv2.resize(digit, (int(w * scale), int(h * scale)))
 
-    # 5) Centrar en un canvas de 28x28
+    # Centrar en un canvas de 28x28
     canvas = np.zeros((28, 28), dtype=np.uint8)
     dx = (28 - digit_resized.shape[1]) // 2
     dy = (28 - digit_resized.shape[0]) // 2
     canvas[dy:dy + digit_resized.shape[0], dx:dx +
            digit_resized.shape[1]] = digit_resized
 
-    # 6) Normalizar y convertir a RGB
+    # Normalizar y convertir a RGB
     canvas = canvas.astype("float32") / 255.0
     canvas_rgb = np.repeat(canvas[..., np.newaxis], 3, axis=-1)  # (28, 28, 3)
 
     return np.expand_dims(canvas_rgb, axis=0)  # (1, 28, 28, 3)
+
 
 
 @app.post("/predict-digit/")
